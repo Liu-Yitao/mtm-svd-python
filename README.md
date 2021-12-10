@@ -23,9 +23,6 @@ This routine is provided as is without any express or implied warranties.
 Questions or comments to:
 Yitao Liu, liuyitao97@outlook.com
 
-Last update:
-Dec 2021
-
 ------------------------------------------------------------------
 
 The script is structured as follows:
