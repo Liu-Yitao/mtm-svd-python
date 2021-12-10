@@ -1,8 +1,12 @@
-# MTM-SVD method in python
+# Script for MultiTaper Method-Singular Value Decomposition (MTM-SVD) with Monte Carlo test in python
 
-## Script for MultiTaper Method-Singular Value Decomposition (MTM-SVD) with Monte Carlo test in python
+---
+## outlook of the next version
 
-------------------------------------------------------------------
+The shortage of the version is being too slow.
+Making the function running with numba may help
+
+---
 
 This script is a modified version of the Python function developed by
 Mathilde Jutras at McGill University, Canada[1]. 
@@ -23,7 +27,7 @@ This routine is provided as is without any express or implied warranties.
 Questions or comments to:
 Yitao Liu, liuyitao97@outlook.com
 
-------------------------------------------------------------------
+---
 
 The script is structured as follows:
 
@@ -37,7 +41,7 @@ In the third section, the spatial patterns are plotted and saved
 
 The main script is contained in mtm-svd-python.py, and the required functions can be found in mtm_functions.py.
 
-------------------------------------------------------------------
+---
 
 Python Package needed:
 - numpy
