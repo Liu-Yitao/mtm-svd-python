@@ -4,7 +4,7 @@
 ## outlook of the next version
 
 The shortage of the version is being too slow.
-Making the function running with numba may help
+Making the function running with numba may help.
 
 ---
 
