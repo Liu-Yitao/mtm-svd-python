@@ -34,10 +34,9 @@ The script is structured as follows:
 In the main script is found in mtm-svd-python.py
 In the first section, the user can load the data,
 assuming the outputs are stored in a netcdf format.
-In the secton section, functions are called to calculate the spectrum
-The user will then be asked for which frequencies he wants to plot 
-the spatial patterns associated with the variability.
-In the third section, the spatial patterns are plotted and saved
+In the secton section, functions are called to calculate the spectrum.
+And you will get the output in netcdf format.
+In the third section, the spatial patterns are plotted and saved.
 
 The main script is contained in mtm-svd-python.py, and the required functions can be found in mtm_functions.py.
 
