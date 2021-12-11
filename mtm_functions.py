@@ -1,53 +1,76 @@
-# Functions for MultiTaper Method-Singular Value Decomposition (MTM-SVD) in python
-#
+# Script for MultiTaper Method-Singular Value Decomposition (MTM-SVD) with Monte Carlo test in python
+
 # ------------------------------------------------------------------
-#
-# This script is a direct adaptation of the Matlab toolbox developed by
-# Marco Correa-Ramirez and Samuel Hormazabal at 
-# Pontificia Universidad Catolica de Valparaiso
-# Escuela de Ciencias del Mar, Valparaiso, Chile
-# and is available through 
-# http://www.meteo.psu.edu/holocene/public_html/Mann/tools/tools.php
-#
-# This script was adapted by Mathilde Jutras at McGill University, Canada
-# Copyright (C) 2020, Mathilde Jutras
+
+# This script is a modified version of the Python function developed by
+# Mathilde Jutras at McGill University, Canada[1]. 
+# You can find the original Python code here: 
+# https://github.com/mathildejutras/mtm-svd-python
+
+# This script was adapted by Yitao Liu at Nanjing University of Information Science & Technology, China
+# Copyright (C) 2021, Yitao Liu
 # and is available under the GNU General Public License v3.0
-# 
+
 # The script may be used, copied, or redistributed as long as it is cited as follow:
-# 
-#
+# []
+
 # This software may be used, copied, or redistributed as long as it is not 
 # sold and that this copyright notice is reproduced on each copy made. 
 # This routine is provided as is without any express or implied warranties.
-#
+
 # Questions or comments to:
-# M. Jutras, mathilde.jutras@mail.mcgill.ca
-#
+# Yitao Liu, liuyitao97@outlook.com
+
 # Last update:
-# July 2020
-#
+# Dec 2021
+
 # ------------------------------------------------------------------
-# 
-# This file contains the functions called in the file
-# mmt-svd-python.py
-# 
+
+# The script is structured as follows:
+
+# In the main script is found in mtm-svd-python.py
+# In the first section, the user can load the data,
+# assuming the outputs are stored in a netcdf format.
+# In the secton section, functions are called to calculate the spectrum
+# The user will then be asked for which frequencies he wants to plot 
+# the spatial patterns associated with the variability.
+# In the third section, the spatial patterns are plotted and saved
+
+# The required functions are found in mtm_functions.py
+
 # ------------------------------------------------------------------
-# 
+
+# Python Package needed:
+# - numpy
+# - scipy
+# - xarray (read the netcdf file)
+# - matplotlib (not necessary, just for plotting)
+
+# You can install the needed Python packages by conda,with the command below
+# ```
+# conda install -c conda-forge numpy scipy xarray matplotlib
+# ```
+
+# [1] Mathilde Jutras. (2020, July 6). mathildejutras/mtm-svd-python: v1.0.0-alpha (Version v1.0.0). Zenodo. http://doi.org/10.5281/zenodo.3932319
+
+# ------------------------------------------------------------------
 
 from scipy.signal.windows import dpss
 from scipy import signal
 import numpy as np
 from numpy.matlib import repmat
-
+from numpy.random import shuffle
+# from numba import jit
 
 # Function 1) Determine the local fractional variance spectrum LFV 
-
+# @jit
 def mtm_svd_lfv(ts2d,nw,kk,dt) :
 
 	# Compute spectrum at each grid point
 	p, n = ts2d.shape
 
 	# Remove the mean and divide by std
+	# axis_t = np.asarray([0,]).astype(np.int32)
 	vm = np.nanmean(ts2d, axis=0) # mean
 	vmrep = repmat(vm,ts2d.shape[0],1)
 	ts2d = ts2d - vmrep
@@ -67,7 +90,7 @@ def mtm_svd_lfv(ts2d,nw,kk,dt) :
 	# Get the matrix of spectrums
 	psimats = []
 	for k in range(kk):
-		psimat2 = np.transpose( repmat(psi[k,:],ts2d.shape[1],1) ) 
+		psimat2 = np.transpose(repmat(psi[k,:],ts2d.shape[1],1) ) 
 		psimat2 = np.multiply(psimat2,ts2d)
 		psimats.append(psimat2)
 	psimats=np.array(psimats)
@@ -81,84 +104,41 @@ def mtm_svd_lfv(ts2d,nw,kk,dt) :
 		U,S,V = np.linalg.svd(nev[:,j,:], full_matrices=False)
 		lfvs[j] = S[0]**2/(np.nansum(S[1:])**2)
 
+	
+
 	return fr, lfvs
 
 
 
 # Function 2) Calculate the confidence interval of the LFV calculations
+# @jit
+def monte_carlo_test(index_with_space,niter,sl,len_freq,nw,kk,dt):
+    '''
+    sample:
+        monte_carlo_test(index_with_space,niter,sl,len(freq),nw,kk,dt)
+    '''
 
-def mtm_svd_conf(ts2d,nw,kk,dt,niter,sl) :
+    # create file to store all random lfv
+    lfv_mc = np.zeros((niter, len_freq))
+    # calculate all random lfc and store in lfv_mc[num_of_mc, num_of_freq]
+    for ii in range(niter):
+        if (ii % 10) == 0:
+            print(f'niter = {ii}')
+        index_with_space_rd = index_with_space.copy()
+        shuffle(index_with_space)
+        [freq_rd, lfv_rd] = mtm_svd_lfv(index_with_space,nw,kk,dt)
+        lfv_mc[ii,:] = lfv_rd
+    lfv_mc_sort = np.sort(lfv_mc, axis=0)# true?
+    
+    num = np.rint((1-np.asarray(sl)) * niter).astype(np.int64)
+    # print(lfv_mc_sort.shape)
+    # print(num)
+    conflev = lfv_mc_sort[num,:]
+    
+    return freq_rd,conflev
 
-	# Compute spectrum at each grid point
-	p, n = ts2d.shape
 
-	npad = 2**int(np.ceil(np.log2(abs(p)))+2)
-	nf = int(npad/2)
-	ddf = 1./(npad*dt)
-	fr = np.arange(0,nf)*ddf
-	
-	# range of frequencies
-	fran = [0, 0.5/dt]
-	nfmin = (np.abs(fr-fran[0])).argmin()
-	nfmax = (np.abs(fr-fran[1])).argmin()
-	fr = fr[nfmin:nfmax]
-
-	q = [int(niter*each) for each in sl]
-
-	# Remove the mean and divide by std
-	vm = np.nanmean(ts2d, axis=0) # mean
-	vmrep = repmat(vm,ts2d.shape[0],1)
-	ts2d = ts2d - vmrep
-	vs = np.nanstd(ts2d, axis=0) # standard deviation
-	vsrep = repmat(vs,ts2d.shape[0],1)
-	ts2d = np.divide(ts2d,vsrep)
-	ts2d = np.nan_to_num(ts2d)
-	
-	# Slepian tapers
-	psi = dpss(p,nw,kk)
-
-	partvar = np.ones((niter, len(fr)+1))*np.nan
-	for it in range(niter):
-		print('Iter %i'%it)
-		shr = np.random.permutation(ts2d) # random permutation of each time series
-	
-		# Spectral estimation
-		psimats = []
-		for k in range(kk):
-			psimat2 = np.transpose( repmat(psi[k,:],shr.shape[1],1) ) 
-			psimat2 = np.multiply(psimat2,shr)
-			psimats.append(psimat2)
-		psimats=np.array(psimats)
-		nevconf = np.fft.fft(psimats,n=npad,axis=1)
-		nevconf = np.fft.fftshift(nevconf,axes=(1))
-		nevconf = nevconf[:,nf:,:]
-
-		# Calculate svd for each frequency
-		for j in range(nfmin,nfmax) :
-			U,S,V = np.linalg.svd(nevconf[:,j,:], full_matrices=False)
-			partvar[it,j] = S[0]**2/(np.nansum(S[1:])**2)
-
-	np.sort(partvar, axis=1)
-
-	freq_sec = nw/(p*dt)
-	ibs = (np.abs(fr-freq_sec)).argmin() ; ibs=range(ibs)
-	ibns = range(ibs[-1]+1, len(fr))
-	fray = 1./(p*dt)
-	fbw = 2*nw*fray
-	ifbw = int(round(fbw/(fr[2]-fr[1])))
-
-	evalper = np.zeros((len(q),len(fr)))
-	for i in range(len(q)):
-		y2 = np.zeros(len(fr))
-		y = partvar[q[i],:] ### right order indices?
-		y1 = signal.medfilt(y,ifbw)
-		y2[ibs] = np.mean(y[ibs])
-		a = np.polyfit(fr[ibns],y1[ibns],10)
-		y2[ibns] = np.polyval(a, fr[ibns])
-		evalper[i,:] = y2
-	
-	return fr, evalper
-
+# @jit
 def envel(ff0, iif, fr, dt, ddf, p, kk, psi, V) :
 
 	ex = np.ones(p)
@@ -170,8 +150,8 @@ def envel(ff0, iif, fr, dt, ddf, p, kk, psi, V) :
 	cs=np.cos(2.*np.pi*df1*dt)
 	sn=np.sin(2.*np.pi*df1*dt)
 	for i in range(1,p) :
-	    c.append( c[i-1]*cs-s[i-1]*sn )
-	    s.append( c[i-1]*sn+s[i-1]*cs )
+		c.append( c[i-1]*cs-s[i-1]*sn )
+		s.append( c[i-1]*sn+s[i-1]*cs )
 	cl = np.ones(p) ## REMOVE? 
 	sl = np.zeros(p) ##
 
@@ -201,14 +181,12 @@ def envel(ff0, iif, fr, dt, ddf, p, kk, psi, V) :
 	env = np.matmul(g1, env0.T)
 
 	env = env + amp0*np.ones(len(c))
-
 	return env
 
 
 # Function 3) Reconstruct the spatial patterns associated with peaks in the spectrum
-
+# @jit
 def mtm_svd_recon(ts2d, nw, kk, dt, fo) :
-
 	imode = 0
 	lan = 0
 	vw = 0
@@ -283,5 +261,6 @@ def mtm_svd_recon(ts2d, nw, kk, dt, fo) :
 		vsr=np.var(R,axis=0)
 		vexp.append( vsr/(vs**2)*100 )
 		totvarexp.append( np.nansum(vsr)/np.nansum(vs**2)*100 )
+	
 
 	return vexp, totvarexp, iis
