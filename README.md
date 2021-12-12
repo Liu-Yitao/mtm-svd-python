@@ -14,10 +14,8 @@ Mathilde Jutras at McGill University, Canada[1].
 You can find the original Python code here: 
 https://github.com/mathildejutras/mtm-svd-python
 
-This script was adapted by Yitao Liu at Nanjing University of Information Science & Technology, China
-
+This script was adapted by Yitao Liu at Nanjing University of Information Science & Technology, China.
 Copyright (C) 2021, Yitao Liu
-
 and is available under the GNU General Public License v3.0
 
 The script may be used, copied, or redistributed as long as it is cited as follow:
@@ -42,7 +40,8 @@ In the secton section, functions are called to calculate the spectrum.
 And you will get the output in netcdf format.
 In the third section, the spatial patterns are plotted and saved.
 
-The main script is contained in mtm-svd-python.py, and the required functions can be found in mtm_functions.py.
+The main script is contained in mtm-svd-python.py and mtm-svd-python.ipynb.
+The required functions can be found in mtm_functions.py.
 
 ---
 
