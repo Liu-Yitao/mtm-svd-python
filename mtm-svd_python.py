@@ -12,7 +12,7 @@
 # and is available under the GNU General Public License v3.0
 
 # The script may be used, copied, or redistributed as long as it is cited as follow:
-# []
+# Liu-Yitao, & Mathilde Jutras. (2021). Liu-Yitao/mtm-svd-python: MTM-SVD with Monte Carlo test (v1.1.0). Zenodo. https://doi.org/10.5281/zenodo.5774584
 
 # This software may be used, copied, or redistributed as long as it is not 
 # sold and that this copyright notice is reproduced on each copy made. 
