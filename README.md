@@ -1,10 +1,9 @@
 # Script for MultiTaper Method-Singular Value Decomposition (MTM-SVD) with Monte Carlo test in python
 
 
-## outlook of the next version
+### outlook of the next version
 
-The shortage of the version is being too slow.
-
+The shortage of the version is that the Monte Carlo testing function is too slow.
 Making this function running with numba may help.
 
 ---
