@@ -15,8 +15,8 @@ You can find the original Python code here:
 https://github.com/mathildejutras/mtm-svd-python
 
 This script was adapted by Yitao Liu at Nanjing University of Information Science & Technology, China.
-Copyright (C) 2021, Yitao Liu
-and is available under the GNU General Public License v3.0
+Copyright (C) 2021, Yitao Liu.
+And is available under the GNU General Public License v3.0.
 
 The script may be used, copied, or redistributed as long as it is cited as follow:
 []
