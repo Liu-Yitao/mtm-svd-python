@@ -57,26 +57,9 @@
 
 import numpy as np
 from numpy.random import shuffle
-from scipy.signal.windows import dpss
 import numba
 
-def params(ts2d, nw, kk, dt):
-    # Compute spectrum at each grid point
-    p, n = ts2d.shape
-    psi = dpss(p, nw, kk)  # Generate the Slepian tapers
-    # Remove the mean and divide by std
-    vm = np.nanmean(ts2d, axis=0)  # Calculate the mean along the time axis
-    vs = np.nanstd(ts2d, axis=0)  # Calculate the standard deviation along the time axis
-    ts2d_std = np.divide(ts2d - vm, vs)  # Divide ts2d by the standard deviation, avoid division by zero
-    ts2d_std_fillna = np.nan_to_num(ts2d_std)  # Replace NaN values with 0
-
-    npad = 2**int(np.ceil(np.log2(abs(p))) + 2)  # Calculate the padding size for the FFT
-    nf = int(npad / 2)  # Calculate the number of frequencies
-    ddf = 1./(npad*dt)  # Calculate the frequency resolution
-    fr = np.arange(0, nf) * ddf  # Generate the array of frequencies
-    return ts2d_std_fillna, psi, npad, nf, fr
-
-def mtm_svd_lfv(ts2d, nw, kk, dt):
+def mtm_svd_lfv(ts2d, psi, kk, dt):
     """
     Calculate the local fractional variance spectrum (LFV) using the MultiTaper Method-Singular Value Decomposition (MTM-SVD).
 
@@ -90,10 +73,24 @@ def mtm_svd_lfv(ts2d, nw, kk, dt):
     - fr: Array of frequencies.
     - lfvs: Array of LFV values corresponding to each frequency.
     """
-    ts2d_std, psi, npad, nf, fr = params(ts2d, nw, kk, dt)
+
+    # Compute spectrum at each grid point
+    p, n = ts2d.shape
+
+    # Remove the mean and divide by std
+    vm = np.nanmean(ts2d, axis=0)  # Calculate the mean along the time axis
+    ts2d = ts2d - vm  # Subtract the mean from ts2d
+    vs = np.nanstd(ts2d, axis=0)  # Calculate the standard deviation along the time axis
+    ts2d = np.divide(ts2d, vs, where=vs!=0)  # Divide ts2d by the standard deviation, avoid division by zero
+    ts2d = np.nan_to_num(ts2d)  # Replace NaN values with 0
+
+    npad = 2**int(np.ceil(np.log2(abs(p))) + 2)  # Calculate the padding size for the FFT
+    nf = int(npad / 2)  # Calculate the number of frequencies
+    ddf = 1./(npad*dt)  # Calculate the frequency resolution
+    fr = np.arange(0, nf) * ddf  # Generate the array of frequencies
 
     # Get the matrix of spectrums
-    psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d_std) for k in range(kk)])  # Use broadcasting instead of repmat
+    psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d) for k in range(kk)])  # Use broadcasting instead of repmat
     nev = np.fft.fft(psimats, n=npad, axis=1)  # Perform the FFT along the time axis
     nev = np.fft.fftshift(nev, axes=(1))  # Shift the FFT output to center the frequencies
     nev = nev[:, nf:, :]  # Remove the negative frequencies
@@ -107,7 +104,7 @@ def mtm_svd_lfv(ts2d, nw, kk, dt):
     return fr, lfvs
 
 # Function 2) Calculate the confidence interval of the LFV calculations
-def monte_carlo_test(index_with_space, niter, sl, len_freq, nw, kk, dt):
+def monte_carlo_test(index_with_space, niter, sl, len_freq, psi, kk, dt):
 	"""
 	Perform Monte Carlo test to calculate the confidence interval of the LFV calculations.
 
@@ -134,7 +131,7 @@ def monte_carlo_test(index_with_space, niter, sl, len_freq, nw, kk, dt):
 		if (ii % 100) == 0:
 			print(f'niter = {ii}')
 		shuffle(index_with_space)  # randomly shuffle the index_with_space array
-		_, lfv_rd = mtm_svd_lfv(index_with_space, nw, kk, dt)  # calculate the LFV using the shuffled index_with_space
+		_, lfv_rd = mtm_svd_lfv(index_with_space, psi, kk, dt)  # calculate the LFV using the shuffled index_with_space
 		lfv_mc[ii, :] = lfv_rd  # store the LFV values in the lfv_mc array
 
 	lfv_mc_sort = np.sort(lfv_mc, axis=0)  # sort the LFV values in ascending order
@@ -144,6 +141,31 @@ def monte_carlo_test(index_with_space, niter, sl, len_freq, nw, kk, dt):
 	conflev = lfv_mc_sort[num, :]  # select the LFV values corresponding to the confidence interval
 
 	return conflev
+
+@numba.jit(nopython=True, parallel=True)
+def monte_carlo_test_parallel(index_with_space, niter, sl, psi, kk, dt):
+    """
+    Perform Monte Carlo test to calculate the confidence interval of the LFV calculations.
+    """
+    # create file to store all random lfv
+    _, fr = mtm_svd_lfv(index_with_space, psi, kk, dt)  # 获得频率数
+    lfv_mc = np.zeros((niter, len(fr)))
+
+    # calculate all random lfc and store in lfv_mc[num_of_mc, num_of_freq]
+    for ii in numba.prange(niter):  # 使用 numba.prange 支持并行
+        if (ii % 100) == 0:
+            print(f'niter = {ii}')
+        shuffle(index_with_space)  # randomly shuffle the index_with_space array
+        _, lfv_rd = mtm_svd_lfv(index_with_space, psi, kk, dt)  # calculate the LFV using the shuffled index_with_space
+        lfv_mc[ii, :] = lfv_rd  # store the LFV values in the lfv_mc array
+
+    lfv_mc_sort = np.sort(lfv_mc, axis=0)  # sort the LFV values in ascending order
+
+    num = np.rint((1 - np.asarray(sl)) * niter).astype(np.int64)  # calculate the number of LFV values to include in the CI
+
+    conflev = lfv_mc_sort[num, :]  # select the LFV values corresponding to the CI
+
+    return conflev
 
 # @jit
 # @jit
@@ -217,7 +239,7 @@ def envel(ff0, iif, fr, dt, ddf, p, kk, psi, V):
 # Function 3) Reconstruct the spatial patterns associated with peaks in the spectrum
 # @jit
 
-def mtm_svd_recon(ts2d, nw, kk, dt, fo):
+def mtm_svd_recon(ts2d, psi, kk, dt, fo):
     """
     Perform multitaper singular value decomposition (SVD) reconstruction.
     Args:
@@ -233,8 +255,21 @@ def mtm_svd_recon(ts2d, nw, kk, dt, fo):
             - iis (list): List of indices corresponding to the closest frequency for each frequency of interest.
     """
     imode = 0  # Initialize the mode index
+
+    # Compute spectrum at each grid point
+    p, n = ts2d.shape  # Get the shape of the input time series data
+
+    # Remove the mean and divide by std
+    vm = np.nanmean(ts2d, axis=0)  # Calculate the mean along the time axis
+    ts2d = ts2d - vm  # Subtract the mean from ts2d
     vs = np.nanstd(ts2d, axis=0)  # Calculate the standard deviation along the time axis
-    ts2d_std, psi, npad, nf, fr = params(ts2d, nw, kk, dt)
+    ts2d = np.divide(ts2d, vs, where=vs != 0)  # Divide ts2d by the standard deviation, avoid division by zero
+    ts2d = np.nan_to_num(ts2d)  # Replace NaN values with 0
+
+    npad = 2**int(np.ceil(np.log2(abs(p))) + 2)  # Calculate the padding size for the FFT
+    nf = int(npad / 2)  # Calculate the number of frequencies
+    ddf = 1. / (npad * dt)  # Calculate the frequency resolution
+    fr = np.arange(0, nf) * ddf  # Generate the array of frequencies
 
     # Get the matrix of spectrums
     psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d) for k in range(kk)])  # Use broadcasting instead of repmat
