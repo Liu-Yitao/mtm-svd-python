@@ -55,7 +55,7 @@
 
 # ------------------------------------------------------------------
 
-from mtm_functions import *
+from test import *
 import xarray as xr
 # from os import listdir
 from os import system
@@ -68,12 +68,12 @@ import time
 # 1) Load the data
 # -----------------
 # the data used in this sample is the SST of CMIP5 CCSM4 piControl
-file_path = 'tos_1x1_CCSM4_piControl.nc'
+file_path = './ie13_PI_iTraCE.ocn.SST.degC.0001-0400.ANN.nc'
 # Select the depth, in m
 d = 0 
-model = 'CCSM4' # name of the model, for naming the output
+model = 'icesm13' # name of the model, for naming the output
 
-var = xr.open_dataset(file_path)['tos'].loc[:,0:65,280:360]
+var = xr.open_dataset(file_path)['SST'].loc[:,0:65,280-360:0]
 dt = 1. # time step in years
 lon = var.lon
 lat = var.lat

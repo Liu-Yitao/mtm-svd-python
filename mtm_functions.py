@@ -55,212 +55,236 @@
 
 # ------------------------------------------------------------------
 
-from scipy.signal.windows import dpss
-from scipy import signal
 import numpy as np
-from numpy.matlib import repmat
 from numpy.random import shuffle
-# from numba import jit
 
-# Function 1) Determine the local fractional variance spectrum LFV 
-# @jit
-def mtm_svd_lfv(ts2d,nw,kk,dt) :
+def mtm_svd_lfv(ts2d, psi, kk, dt):
+    """
+    Calculate the local fractional variance spectrum (LFV) using the MultiTaper Method-Singular Value Decomposition (MTM-SVD).
 
-	# Compute spectrum at each grid point
-	p, n = ts2d.shape
+    Parameters:
+    - ts2d: 2D array of shape (p, n), where p is the number of grid points and n is the number of time steps.
+    - psi: Discrete Prolate Spheroidal Sequences
+    - kk: Number of Slepian tapers to use.
+    - dt: Time step size.
 
-	# Remove the mean and divide by std
-	# axis_t = np.asarray([0,]).astype(np.int32)
-	vm = np.nanmean(ts2d, axis=0) # mean
-	vmrep = repmat(vm,ts2d.shape[0],1)
-	ts2d = ts2d - vmrep
-	vs = np.nanstd(ts2d, axis=0) # standard deviation
-	vsrep = repmat(vs,ts2d.shape[0],1)
-	ts2d = np.divide(ts2d,vsrep)
-	ts2d = np.nan_to_num(ts2d)
+    Returns:
+    - fr: Array of frequencies.
+    - lfvs: Array of LFV values corresponding to each frequency.
+    """
 
-	# Slepian tapers
-	psi = dpss(p,nw,kk)
+    # Compute spectrum at each grid point
+    p, n = ts2d.shape
 
-	npad = 2**int(np.ceil(np.log2(abs(p)))+2)
-	nf = int(npad/2)
-	ddf = 1./(npad*dt)
-	fr = np.arange(0,nf)*ddf
-	
-	# Get the matrix of spectrums
-	psimats = []
-	for k in range(kk):
-		psimat2 = np.transpose(repmat(psi[k,:],ts2d.shape[1],1) ) 
-		psimat2 = np.multiply(psimat2,ts2d)
-		psimats.append(psimat2)
-	psimats=np.array(psimats)
-	nev = np.fft.fft(psimats,n=npad,axis=1)
-	nev = np.fft.fftshift(nev,axes=(1))
-	nev = nev[:,nf:,:] 
+    # Remove the mean and divide by std
+    vm = np.nanmean(ts2d, axis=0)  # Calculate the mean along the time axis
+    ts2d = ts2d - vm  # Subtract the mean from ts2d
+    vs = np.nanstd(ts2d, axis=0)  # Calculate the standard deviation along the time axis
+    ts2d = np.divide(ts2d, vs, where=vs!=0)  # Divide ts2d by the standard deviation, avoid division by zero
+    ts2d = np.nan_to_num(ts2d)  # Replace NaN values with 0
 
-	# Calculate svd for each frequency
-	lfvs = np.zeros(nf)*np.nan
-	for j in range(nf) :
-		U,S,V = np.linalg.svd(nev[:,j,:], full_matrices=False)
-		lfvs[j] = S[0]**2/(np.nansum(S[1:])**2)
+    npad = 2**int(np.ceil(np.log2(abs(p))) + 2)  # Calculate the padding size for the FFT
+    nf = int(npad / 2)  # Calculate the number of frequencies
+    ddf = 1./(npad*dt)  # Calculate the frequency resolution
+    fr = np.arange(0, nf) * ddf  # Generate the array of frequencies
 
-	
+    # Get the matrix of spectrums
+    psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d) for k in range(kk)])  # Use broadcasting instead of repmat
+    nev = np.fft.fft(psimats, n=npad, axis=1)  # Perform the FFT along the time axis
+    nev = np.fft.fftshift(nev, axes=(1))  # Shift the FFT output to center the frequencies
+    nev = nev[:, nf:, :]  # Remove the negative frequencies
 
-	return fr, lfvs
+    # Calculate svd for each frequency
+    lfvs = np.zeros(nf) * np.nan  # Initialize an array to store the LFV values
+    for j in range(nf):
+        U, S, V = np.linalg.svd(nev[:, j, :], full_matrices=False)  # Perform the SVD on the matrix at each frequency
+        lfvs[j] = S[0]**2 / (np.nansum(S[1:])**2)  # Calculate the LFV value for the current frequency
 
-
+    return fr, lfvs
 
 # Function 2) Calculate the confidence interval of the LFV calculations
+def monte_carlo_test(index_with_space, niter, sl, len_freq, psi, kk, dt):
+	"""
+	Perform Monte Carlo test to calculate the confidence interval of the LFV calculations.
+
+	Parameters:
+	- index_with_space: 2D array of shape (p, n), where p is the number of grid points and n is the number of time steps.
+	- niter: int, Number of iterations for the Monte Carlo test.
+	- sl: list, Significance level for the confidence interval.
+	- len_freq: Number of frequencies.
+	- psi: Discrete Prolate Spheroidal Sequences
+	- kk: Number of Slepian tapers to use.
+	- dt: Time step size.
+
+	Returns:
+	- freq_rd: Array of frequencies.
+	- conflev: Array of LFV values representing the confidence interval.
+
+	"""
+
+	# create file to store all random lfv
+	lfv_mc = np.zeros((niter, len_freq))
+
+	# calculate all random lfc and store in lfv_mc[num_of_mc, num_of_freq]
+	for ii in range(niter):
+		if (ii % 100) == 0:
+			print(f'niter = {ii}')
+		shuffle(index_with_space)  # randomly shuffle the index_with_space array
+		_, lfv_rd = mtm_svd_lfv(index_with_space, psi, kk, dt)  # calculate the LFV using the shuffled index_with_space
+		lfv_mc[ii, :] = lfv_rd  # store the LFV values in the lfv_mc array
+
+	lfv_mc_sort = np.sort(lfv_mc, axis=0)  # sort the LFV values in ascending order
+
+	num = np.rint((1 - np.asarray(sl)) * niter).astype(np.int64)  # calculate the number of LFV values to include in the confidence interval
+
+	conflev = lfv_mc_sort[num, :]  # select the LFV values corresponding to the confidence interval
+
+	return conflev
+
+
 # @jit
-def monte_carlo_test(index_with_space,niter,sl,len_freq,nw,kk,dt):
-    '''
-    sample:
-        monte_carlo_test(index_with_space,niter,sl,len(freq),nw,kk,dt)
-    '''
-
-    # create file to store all random lfv
-    lfv_mc = np.zeros((niter, len_freq))
-    # calculate all random lfc and store in lfv_mc[num_of_mc, num_of_freq]
-    for ii in range(niter):
-        if (ii % 10) == 0:
-            print(f'niter = {ii}')
-        index_with_space_rd = index_with_space.copy()
-        shuffle(index_with_space)
-        [freq_rd, lfv_rd] = mtm_svd_lfv(index_with_space,nw,kk,dt)
-        lfv_mc[ii,:] = lfv_rd
-    lfv_mc_sort = np.sort(lfv_mc, axis=0)# true?
-    
-    num = np.rint((1-np.asarray(sl)) * niter).astype(np.int64)
-    # print(lfv_mc_sort.shape)
-    # print(num)
-    conflev = lfv_mc_sort[num,:]
-    
-    return freq_rd,conflev
-
-
 # @jit
-def envel(ff0, iif, fr, dt, ddf, p, kk, psi, V) :
+def envel(ff0, iif, fr, dt, ddf, p, kk, psi, V):
+	"""
+	Calculate the envelope of a signal at a specific frequency using the MTM-SVD method.
 
-	ex = np.ones(p)
-	df1 = 0
-	c0=1; s0=0;
+	Parameters:
+	- ff0: The target frequency.
+	- iif: The index of the target frequency in the frequency array.
+	- fr: Array of frequencies.
+	- dt: Time step size.
+	- ddf: Frequency resolution.
+	- p: Number of grid points.
+	- kk: Number of Slepian tapers.
+	- psi: Array of Slepian tapers.
+	- V: Matrix of singular vectors.
 
-	c=[c0]
-	s=[s0]
-	cs=np.cos(2.*np.pi*df1*dt)
-	sn=np.sin(2.*np.pi*df1*dt)
-	for i in range(1,p) :
-		c.append( c[i-1]*cs-s[i-1]*sn )
-		s.append( c[i-1]*sn+s[i-1]*cs )
-	cl = np.ones(p) ## REMOVE? 
-	sl = np.zeros(p) ##
+	Returns:
+	- env: Array of envelope values.
 
-	d = V[0,:]
-	d = np.conj(d)*2
-	if iif == 1 :
-		d = V[0,:] ; d = np.conj(d)
+	"""
+
+	ex = np.ones(p)  # Initialize an array of ones with length p
+	df1 = 0  # Initialize the frequency difference
+
+	c0 = 1
+	s0 = 0
+
+	c = [c0]
+	s = [s0]
+	cs = np.cos(2. * np.pi * df1 * dt)
+	sn = np.sin(2. * np.pi * df1 * dt)
+	for i in range(1, p):
+		c.append(c[i - 1] * cs - s[i - 1] * sn)  # Calculate the cosine term
+		s.append(c[i - 1] * sn + s[i - 1] * cs)  # Calculate the sine term
+
+	cl = np.ones(p)  # Initialize an array of ones with length p
+	sl = np.zeros(p)  # Initialize an array of zeros with length p
+
+	d = V[0, :]  # Get the first row of the singular vectors
+	d = np.conj(d) * 2  # Take the complex conjugate and multiply by 2
+	if iif == 1:
+		d = V[0, :]  # Get the first row of the singular vectors
+		d = np.conj(d)  # Take the complex conjugate
 
 	g = []
-	for i0 in range(kk) :
-		cn = [complex( psi[i0,i]*c[i], -psi[i0,i]*s[i] ) for i in range(len(s))]
-		g.append( ex*cn )
-	g=np.array(g).T
+	for i0 in range(kk):
+		cn = [complex(psi[i0, i] * c[i], -psi[i0, i] * s[i]) for i in range(len(s))]  # Calculate the complex number
+		g.append(ex * cn)  # Multiply the complex number by ex and append to the list
+	g = np.array(g).T  # Convert the list to a numpy array and transpose
 
-	za = np.conj(sum(g))
+	za = np.conj(sum(g))  # Calculate the complex conjugate of the sum of g
 
-	[g1,qrsave1] = np.linalg.qr(g)
-	dum1 = np.linalg.lstsq( np.conj(qrsave1), np.linalg.lstsq( np.conj(qrsave1.T), d )[0] )[0].T
-	amp0=sum(np.conj(za)*dum1)
-	dum2 = np.linalg.lstsq( np.conj(qrsave1), np.linalg.lstsq( np.conj(qrsave1.T), za )[0] )[0].T
-	amp1=sum(np.conj(za)*dum2)
-	amp0=amp0/amp1
-	sum1=sum(abs(d)**2)
-	d=d-za*amp0
-	sum2=sum(abs(d)**2)
-	env0= np.linalg.lstsq( np.conj((qrsave1.T)), d.T )[0].T 
-	env = np.matmul(g1, env0.T)
+	[g1, qrsave1] = np.linalg.qr(g)  # Perform QR decomposition on g
+	dum1 = np.linalg.lstsq(np.conj(qrsave1), np.linalg.lstsq(np.conj(qrsave1.T), d)[0])[0].T  # Solve the linear equation
+	amp0 = sum(np.conj(za) * dum1)  # Calculate the amplitude
+	dum2 = np.linalg.lstsq(np.conj(qrsave1), np.linalg.lstsq(np.conj(qrsave1.T), za)[0])[0].T  # Solve the linear equation
+	amp1 = sum(np.conj(za) * dum2)  # Calculate the amplitude
+	amp0 = amp0 / amp1  # Normalize the amplitude
+	sum1 = sum(abs(d) ** 2)  # Calculate the sum of squared absolute values of d
+	d = d - za * amp0  # Subtract the product of za and amp0 from d
+	sum2 = sum(abs(d) ** 2)  # Calculate the sum of squared absolute values of d
+	env0 = np.linalg.lstsq(np.conj((qrsave1.T)), d.T)[0].T  # Solve the linear equation
+	env = np.matmul(g1, env0.T)  # Multiply g1 and env0 and transpose
+	env = env + amp0 * np.ones(len(c))  # Add amp0 to env
 
-	env = env + amp0*np.ones(len(c))
 	return env
 
 
 # Function 3) Reconstruct the spatial patterns associated with peaks in the spectrum
 # @jit
-def mtm_svd_recon(ts2d, nw, kk, dt, fo) :
-	imode = 0
-	lan = 0
-	vw = 0
 
-	# Compute spectrum at each grid point
-	p, n = ts2d.shape
+def mtm_svd_recon(ts2d, psi, kk, dt, fo):
+    """
+    Perform multitaper singular value decomposition (SVD) reconstruction.
+    Args:
+        ts2d (ndarray): 2D array of time series data.
+        psi (ndarray): Discrete Prolate Spheroidal Sequences.
+        kk (int): Number of tapers to use.
+        dt (float): Time step between samples.
+        fo (list): List of frequencies of interest.
+    Returns:
+        tuple: A tuple containing the following:
+            - vexp (list): List of variance explained for each frequency.
+            - totvarexp (list): List of total variance explained for each frequency.
+            - iis (list): List of indices corresponding to the closest frequency for each frequency of interest.
+    """
+    imode = 0  # Initialize the mode index
 
-	# Remove the mean and divide by std
-	vm = np.nanmean(ts2d, axis=0) # mean
-	vmrep = repmat(vm,ts2d.shape[0],1)
-	ts2d = ts2d - vmrep
-	vs = np.nanstd(ts2d, axis=0) # standard deviation
-	vsrep = repmat(vs,ts2d.shape[0],1)
-	ts2d = np.divide(ts2d,vsrep)
-	ts2d = np.nan_to_num(ts2d)
+    # Compute spectrum at each grid point
+    p, n = ts2d.shape  # Get the shape of the input time series data
 
-	# Slepian tapers
-	psi = dpss(p,nw,kk)
+    # Remove the mean and divide by std
+    vm = np.nanmean(ts2d, axis=0)  # Calculate the mean along the time axis
+    ts2d = ts2d - vm  # Subtract the mean from ts2d
+    vs = np.nanstd(ts2d, axis=0)  # Calculate the standard deviation along the time axis
+    ts2d = np.divide(ts2d, vs, where=vs != 0)  # Divide ts2d by the standard deviation, avoid division by zero
+    ts2d = np.nan_to_num(ts2d)  # Replace NaN values with 0
 
-	npad = 2**int(np.ceil(np.log2(abs(p)))+2)
-	nf = int(npad/2)
-	ddf = 1./(npad*dt)
-	fr = np.arange(0,nf)*ddf
-	
-	# Get the matrix of spectrums
-	psimats = []
-	for k in range(kk):
-		psimat2 = np.transpose( repmat(psi[k,:],ts2d.shape[1],1) ) 
-		psimat2 = np.multiply(psimat2,ts2d)
-		psimats.append(psimat2)
-	psimats=np.array(psimats)
-	nev = np.fft.fft(psimats,n=npad,axis=1)
-	nev = np.fft.fftshift(nev,axes=(1))
-	nev = nev[:,nf:,:] 
+    npad = 2**int(np.ceil(np.log2(abs(p))) + 2)  # Calculate the padding size for the FFT
+    nf = int(npad / 2)  # Calculate the number of frequencies
+    ddf = 1. / (npad * dt)  # Calculate the frequency resolution
+    fr = np.arange(0, nf) * ddf  # Generate the array of frequencies
 
-	# Initialiser les matrices de sorties
-	S = np.ones((kk, len(fo)))*np.nan 
-	vexp = [] ; totvarexp = [] ; iis = []
+    # Get the matrix of spectrums
+    psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d) for k in range(kk)])  # Use broadcasting instead of repmat
+    nev = np.fft.fft(psimats, n=npad, axis=1)  # Perform the FFT along the time axis
+    nev = np.fft.fftshift(nev, axes=(1))  # Shift the FFT output to center the frequencies
+    nev = nev[:, nf:, :]  # Remove the negative frequencies
 
-	D = vsrep
+    # Initialize output matrices
+    S = np.ones((kk, len(fo))) * np.nan  # Initialize the matrix S with NaN values
+    vexp = []  # Initialize an empty list to store the variance explained for each frequency
+    totvarexp = []  # Initialize an empty list to store the total variance explained for each frequency
+    iis = []  # Initialize an empty list to store the indices corresponding to the closest frequency for each frequency of interest
 
-	envmax = np.zeros(len(fo))*np.nan
+    D = vs  # Assign the standard deviation array to D
 
-	for i1 in range(len(fo)):
+    for i1 in range(len(fo)):
+        # closest frequency
+        iif = (np.abs(fr - fo[i1])).argmin()  # Find the index of the closest frequency to the current frequency of interest
+        iis.append(iif)  # Append the index to the list
+        ff0 = fr[iif]  # Get the closest frequency
+        print('( %i ) %.2f cyclesyr | %.2f yr' % (iif, ff0, 1 / ff0))  # Print the index, frequency in cycles per year, and frequency in years
 
-		# closest frequency
-		iif = (np.abs(fr - fo[i1])).argmin()
-		iis.append(iif)
-		ff0 = fr[iif]
-		print('( %i ) %.2f cyclesyr | %.2f yr'%(iif,ff0,1/ff0))
+        U, S0, Vh = np.linalg.svd(nev[:, iif, :].T, full_matrices=False)  # Perform the SVD on the matrix at the closest frequency
+        V = Vh  # Transpose the Vh matrix
+        S[:, i1] = S0  # Store the singular values in the S matrix
 
-		U,S0,Vh = np.linalg.svd(nev[:,iif,:].T,full_matrices=False)
-		##V = Vh.T.conj()
-		V = Vh
-		S[:,i1] = S0
+        env1 = envel(ff0, iif, fr, dt, ddf, p, kk, psi, V)  # Calculate the envelope using the envel function
 
-		env1 = envel(ff0, iif, fr, dt, ddf, p, kk, psi, V) # condition 1
+        # Calculate cosine and sine terms
+        t = np.arange(p)
+        c = np.cos(2 * np.pi * ff0 * dt * t)
+        s = np.sin(2 * np.pi * ff0 * dt * t)
+        CS = c + 1j * s
+        CS = np.conj(CS)  # Take the complex conjugate of the complex number
 
-		cs=[1]
-		sn=[0]
-		c=np.cos(2*np.pi*ff0*dt)
-		s=np.sin(2*np.pi*ff0*dt)
-		for i2 in range(1,p):
-			cs.append( cs[i2-1]*c-sn[i2-1]*s )
-			sn.append( cs[i2-1]*s+sn[i2-1]*c )
-		CS = [complex(cs[i], sn[i]) for i in range(len(cs))]
-		CS=np.conj(CS)
-	
-		# Reconstructions
-		R = np.real( D * S[imode, i1] * np.outer(U[:,imode], CS*env1).T )
+        # Reconstructions
+        R = np.real(D * S[imode, i1] * np.outer(U[:, imode], CS * env1).T)  # Perform the reconstruction
 
-		vsr=np.var(R,axis=0)
-		vexp.append( vsr/(vs**2)*100 )
-		totvarexp.append( np.nansum(vsr)/np.nansum(vs**2)*100 )
-	
+        vsr = np.var(R, axis=0)  # Calculate the variance along the time axis
+        vexp.append(vsr / (vs ** 2) * 100)  # Calculate the variance explained and append to the list
+        totvarexp.append(np.nansum(vsr) / np.nansum(vs ** 2) * 100)  # Calculate the total variance explained and append to the list
 
-	return vexp, totvarexp, iis
+    return vexp, totvarexp, iis  # Return the variance explained, total variance explained, and indices
