@@ -74,7 +74,7 @@ def params(ts2d, nw, kk, dt):
     nf = int(npad / 2)  # Calculate the number of frequencies
     ddf = 1./(npad*dt)  # Calculate the frequency resolution
     fr = np.arange(0, nf) * ddf  # Generate the array of frequencies
-    return ts2d_std_fillna, psi, npad, nf, fr
+    return ts2d_std_fillna, psi, npad, nf, fr, p, ddf
 
 def mtm_svd_lfv(ts2d, nw, kk, dt):
     """
@@ -90,7 +90,7 @@ def mtm_svd_lfv(ts2d, nw, kk, dt):
     - fr: Array of frequencies.
     - lfvs: Array of LFV values corresponding to each frequency.
     """
-    ts2d_std, psi, npad, nf, fr = params(ts2d, nw, kk, dt)
+    ts2d_std, psi, npad, nf, fr, p, ddf = params(ts2d, nw, kk, dt)
 
     # Get the matrix of spectrums
     psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d_std) for k in range(kk)])  # Use broadcasting instead of repmat
@@ -234,10 +234,10 @@ def mtm_svd_recon(ts2d, nw, kk, dt, fo):
     """
     imode = 0  # Initialize the mode index
     vs = np.nanstd(ts2d, axis=0)  # Calculate the standard deviation along the time axis
-    ts2d_std, psi, npad, nf, fr = params(ts2d, nw, kk, dt)
+    ts2d_std, psi, npad, nf, fr, p, ddf = params(ts2d, nw, kk, dt)
 
     # Get the matrix of spectrums
-    psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d) for k in range(kk)])  # Use broadcasting instead of repmat
+    psimats = np.array([np.multiply(psi[k, :, np.newaxis], ts2d_std) for k in range(kk)])  # Use broadcasting instead of repmat
     nev = np.fft.fft(psimats, n=npad, axis=1)  # Perform the FFT along the time axis
     nev = np.fft.fftshift(nev, axes=(1))  # Shift the FFT output to center the frequencies
     nev = nev[:, nf:, :]  # Remove the negative frequencies
